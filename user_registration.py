@@ -5,8 +5,9 @@ import getpass
 from datetime import datetime, timezone
 
 dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table("Users")
-print("Table status:", table.table_status)
+user_table = dynamodb.Table("Users")
+login_attempts_table = dynamodb.Table("LoginAttempts")
+print("Table status:", user_table.table_status)
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -32,10 +33,10 @@ def get_password():
 
 def write_user(username, password, email):
     user_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = get_current_datetime()
     modified_at = created_at
 
-    table.put_item(Item={
+    user_table.put_item(Item={
         "username": username,
         "UserID": user_id,
         "email": email,
@@ -56,7 +57,7 @@ def login_user():
 
     if successful_login:
         try:
-            response = table.get_item(Key={"username": username})
+            response = user_table.get_item(Key={"username": username})
             print("Response received from database")
         except:
             print("Unable to connect to DB")
@@ -74,7 +75,7 @@ def login_user():
 def test_credentials(username, password):
     response = None
     try:
-        response = table.get_item(
+        response = user_table.get_item(
             Key={"username": username},
             ProjectionExpression="username, password_hash"
         )
@@ -84,22 +85,39 @@ def test_credentials(username, password):
     user = response.get("Item")
     if user:
         if user["password_hash"] == password:
+            update_login_attempts(username)
             return True, "User credentials verified."
         else:
+            update_login_attempts(username, "InvalidPassword")
             return False, "Incorrect password. Please try again."
     else:
+        update_login_attempts(username, "InvalidUsername")
         return False, "Username not found"
     
 def update_last_login(username):
-        table.update_item(
+        user_table.update_item(
             Key={"username": username},
             UpdateExpression="SET last_login = :timestamp",
             ExpressionAttributeValues={
-                ":timestamp": datetime.now(timezone.utc).isoformat()
+                ":timestamp": get_current_datetime()
             }
         )
 
+def update_login_attempts(username, failure_reason=""):
+    success = True
+    if failure_reason != "":
+        success = False
 
+    login_attempts_table.put_item(Item={
+        "AttemptID": str(uuid.uuid4()),
+        "username": username,
+        "timestamp": get_current_datetime(),
+        "success": success,
+        "failure_reason": failure_reason
+    })
+
+def get_current_datetime():
+    return datetime.now(timezone.utc).isoformat()
 
 def main():
     while True:
