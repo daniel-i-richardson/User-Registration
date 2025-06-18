@@ -1,6 +1,6 @@
 import boto3
 import uuid
-import hashlib
+import bcrypt
 import getpass
 from datetime import datetime, timezone
 
@@ -10,7 +10,7 @@ login_attempts_table = dynamodb.Table("LoginAttempts")
 print("Table status:", user_table.table_status)
 
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 def register_user():
     print("\n---- Register New User ----")
@@ -50,7 +50,7 @@ def write_user(username, password, email):
 
 def login_user():
     username = input("Username: ")
-    password = hash_password(getpass.getpass("Password: "))
+    password = getpass.getpass("Password: ")
     response = None
     
     successful_login, message = test_credentials(username, password)
@@ -70,8 +70,6 @@ def login_user():
     print(message)
     print("Username: {}\nEmail Address:{}".format(user["username"], user["email"]))
     
-    
-
 def test_credentials(username, password):
     response = None
     try:
@@ -84,7 +82,7 @@ def test_credentials(username, password):
 
     user = response.get("Item")
     if user:
-        if user["password_hash"] == password:
+        if bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
             update_login_attempts(username)
             return True, "User credentials verified."
         else:
